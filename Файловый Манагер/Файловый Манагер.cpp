@@ -9,7 +9,8 @@ class fileManager {
 #define RL_MAX_PATH MAX_PATH+1
     static bool heaven(char* path) { // отсекает последнюю папку с пути👍
         const char* result = strrchr(path, '\\');
-        if (result == nullptr) return false;
+        if (result == nullptr)
+            return false;
         int64_t delta = result - path;
         path[delta] = '\0';
         return true;
@@ -48,12 +49,39 @@ class fileManager {
     static const int size = 8192; // максимальный размер команды + терминальный ноль
     char message[1024]; // сообщение о результатах выполнения операции в интерфейсе
     char path[RL_MAX_PATH]; //максимальный размер пути файла + /0
-    bool isDir(const char* fullpath) { // проверяет папка или файл, а также имя диска
+    static bool isDir(const char* fullpath) { // проверяет папка или файл, а также имя диска
         if (fullpath[1] != ':') {
             throw std::exception("Only Full Path, MF!");
         }
         DWORD attributes = GetFileAttributesA(fullpath);
         return (attributes == INVALID_FILE_ATTRIBUTES) ? false : (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+    }
+    bool isPathExist(char* name) {//name только папки
+        if (!isDisk(name)) {
+            zErrno(ENODISK);
+            return false;
+        }
+        char checkPath[RL_MAX_PATH];
+        strcpy_s(checkPath, RL_MAX_PATH, name);
+        int c = strcspn(name, "\\");
+        char* next_token = NULL;
+        name[0] = '\0';
+        char checkName[RL_MAX_PATH]{};
+        char* token = strtok_s(checkPath, "\\", &next_token);
+        strcat_s(name, RL_MAX_PATH, token);
+        strcat_s(name, RL_MAX_PATH, "\\");
+        strcat_s(checkName, RL_MAX_PATH, name);
+        token = strtok_s(nullptr, "\\", &next_token);
+        while (token != nullptr) {
+            strcat_s(checkName, RL_MAX_PATH, token);
+            const char* realName = getName(checkName);
+            strcat_s(name, RL_MAX_PATH, realName);
+            delete[]realName;
+            if (!isDir(name)) return false;
+            strcat_s(name, RL_MAX_PATH, "\\");
+            strcat_s(checkName, RL_MAX_PATH, name);
+            token = strtok_s(nullptr, "\\", &next_token);
+        }
     }
     char* formatInputPath(const char* name) { // при необходимости приводит короткий путь  к стандартному;
         char* fullpath;
@@ -67,8 +95,6 @@ class fileManager {
                 zErrno(ENODISK);
                 return nullptr;
             }
-
-            //ПРОВЕРКА СУЩЕСТВОВАНИЯ ПАПОК В ПУТИ name
             fullpath = new char[RL_MAX_PATH];
             strcpy_s(fullpath, RL_MAX_PATH, name);
         }
@@ -82,11 +108,15 @@ class fileManager {
     }
     const char* getName(const char* path) {
         char* fullpath = formatInputPath(path);
-        if (!isDir(fullpath)) return nullptr;
+        if (!isDir(fullpath)) {
+            delete[] fullpath;
+            return nullptr;
+        }
         _finddata_t find;
         long long result = _findfirst(path, &find);
         char* rename = new char[strlen(find.name) + 1];
         strcpy_s(rename, strlen(find.name) + 1, find.name);
+        delete[] fullpath;
         return rename;
     }
 public:
@@ -107,7 +137,7 @@ public:
             std::cin.getline(action, size);
             //Переход в корневой каталог
             if (!_stricmp(action, "root")) {
-                    path[2] = '\0';
+                path[2] = '\0';
             }
             //Проверка на желание пользователя выйти
             else if (!_stricmp(action, "exit")) {
@@ -171,51 +201,23 @@ public:
         return true;
     }
     void setPath(const char* newPath) { //вызов cd в ООПагангамстайл
-        if (!strcmp(newPath, ".") || !strcmp(newPath, "/"))
+        if (newPath == nullptr || !strcmp(newPath, ".") || !strcmp(newPath, "/"))
             return;
         //Поднимаемся в родительский каталог
         if (!strcmp(newPath, "..")) {
             heaven(path);
             return;
         }
-        char temp[RL_MAX_PATH];
-        //Проверка на полный путь к Директории (точнее его отсутствия)
-        if (newPath[1] != ':') {
-            int c = strcspn(newPath, "\\");
-            if (c != strlen(newPath)) {
-                char* next_token = NULL;
-                char thesame[RL_MAX_PATH];
-                strcpy_s(thesame, RL_MAX_PATH, newPath);
-                char* token = strtok_s(thesame, "\\", &next_token);
-                while (token != nullptr) {
-                    setPath(token);
-                    token = strtok_s(nullptr, "\\", &next_token);
-                }
-                return;
-            }
-            strcpy_s(temp, RL_MAX_PATH, path);
-            strcat_s(temp, RL_MAX_PATH, "\\");
-            strcat_s(temp, RL_MAX_PATH, newPath);
-        }
-        // Был дан полный путь
-        else {
-            strcpy_s(temp, RL_MAX_PATH, newPath);
-            GetLongPathNameA(temp, path, RL_MAX_PATH);
-            path[0] = toupper(path[0]);
-            return;
-        }
-        //Был дан неполный путь
-        const char* name = getName(temp);
-        if (name == nullptr) {
+        char* checkPath = formatInputPath(newPath);
+        if (!isPathExist(checkPath)) {
             zErrno(ENOPATH);
-            delete[] name;
+            delete[] checkPath;
             return;
-        }
+        };
         strcat_s(path, RL_MAX_PATH, "\\");
-        strcat_s(path, RL_MAX_PATH, name);
-        delete[] name;
+        strcat_s(path, RL_MAX_PATH, checkPath);
     }
-        const char* const getPath() {
+    const char* const getPath() {
         return path;
     }
     void showDir(const char* path, std::ostream& out = std::cout) {
@@ -241,8 +243,9 @@ public:
         showDir(path, out);
     }
     bool createDir(const char* d) {
-        const char* fullpath = formatInputPath(d);
-        if (fullpath == nullptr) return false;
+        char* fullpath = formatInputPath(d);
+        if (fullpath == nullptr)
+            return false;
         if (_mkdir(fullpath)) {
             zErrno(errno);
             if (errno == ENOENT) {
@@ -253,28 +256,40 @@ public:
                 createDir(fullpath);
             }
             else {
-                delete[]fullpath;
+                delete[] fullpath;
                 return false;
             }
         }
-        delete[]fullpath;
+        delete[] fullpath;
         return true;
     }
     bool createFile(const char* name) {
         const char* fullpath = formatInputPath(name);
-        if (fullpath == nullptr) return false;
+        if (fullpath == nullptr) {
+            return false;
+        }
+        char CurDir[RL_MAX_PATH];
+        strcpy_s(CurDir, RL_MAX_PATH, fullpath);
+        heaven(CurDir);
+        if (!isPathExist(CurDir))
+            createDir(CurDir);
         FILE* f;
         fopen_s(&f, fullpath, "w");
         if (!f) {
             zErrno(errno);
+            delete[] fullpath;
             return false;
         }
         fclose(f); // закрываем файл
+        delete[] fullpath;
         return true;
     }
     bool deleteDir(const char* d) {
         const char* fullpath = formatInputPath(d);
-        if (fullpath == nullptr) return false;
+        if (fullpath == nullptr) {
+            delete[] fullpath;
+            return false;
+        }
         _finddata_t find;
         char search[RL_MAX_PATH];
         strcpy_s(search, RL_MAX_PATH, fullpath);
@@ -283,7 +298,7 @@ public:
         if (h == -1) {
             if (errno == ENOENT) zErrno(ENOPATH);
             else zErrno(errno);
-            delete[]fullpath;
+            delete[] fullpath;
             return false;
         }
         do {
@@ -309,9 +324,13 @@ public:
     }
     bool deleteFile(const char* name) {
         const char* fullpath = formatInputPath(name);
-        if (fullpath == nullptr) return false;
-        if (remove(fullpath) == -1) {
+        if (fullpath == nullptr) {
+            delete[] fullpath;
+            return false;
+        }
+        if (remove(fullpath) == -1) {//надо потестить, нужно ли вызывать isPathExist() или нет?
             zErrno(errno); //ну тут то чё может быть непонятного
+            //ТУТ МОЖЕТ БЫТЬ, НАПРИМЕР, ЧТО ПРАВ НЕТ У ПОЛЬЗОВАТЕЛЯ ДЛЯ УДАЛЕНИЯ
             delete[]fullpath;
             return false;
         }
@@ -320,15 +339,17 @@ public:
     }
     bool reName(const char* oldname, const char* newname) {
         const char* fullpathOld = formatInputPath(oldname);
-        if (fullpathOld == nullptr)
-            return false;
-
-        const char* fullpathNew = formatInputPath(newname);
-        if (fullpathNew == nullptr) {
-            delete[]fullpathOld;
+        if (fullpathOld == nullptr) {
+            delete[] fullpathOld;
             return false;
         }
-            int result = rename(fullpathOld, fullpathNew);
+        const char* fullpathNew = formatInputPath(newname);
+        if (fullpathNew == nullptr) {
+            delete[] fullpathNew;
+            return false;
+        }
+
+        int result = rename(fullpathOld, fullpathNew);//аналогично потестить!! нужно ли проверять, что путь существует???
         delete[]fullpathNew;
         delete[]fullpathOld;
         if (result != 0) {
@@ -337,18 +358,19 @@ public:
         }
         return true;
     }
-    const char* gettname(const char* path) {
+    const char* gettname(const char* path) {//для теста в main() инкапсулированного метода
         return getName(path);
     }
 #undef ENOCOM
 #undef ENODISK
 #undef ENOPATH
 };
+
 int main() {
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
     fileManager c(0);
-    c.setPath("D:\\Kladovka");
+
     //c.createFile("C:\\");
     //c.setPath(R"(C:\Users\Saturn\source\repos\Файловый Манагер\Файловый Манагер\Владислв)");
 
