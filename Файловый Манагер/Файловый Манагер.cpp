@@ -61,12 +61,11 @@ class fileManager {
             zErrno(ENODISK);
             return false;
         }
-        char checkPath[RL_MAX_PATH];
+        char checkPath[RL_MAX_PATH]; // для работы strcat_s (строка будет испорчена в итоге)
         strcpy_s(checkPath, RL_MAX_PATH, name);
-        int c = strcspn(name, "\\");
         char* next_token = NULL;
         name[0] = '\0';
-        char checkName[RL_MAX_PATH]{};
+        char checkName[RL_MAX_PATH]{};// res
         char* token = strtok_s(checkPath, "\\", &next_token);
         strcat_s(name, RL_MAX_PATH, token);
         strcat_s(name, RL_MAX_PATH, "\\");
@@ -75,11 +74,11 @@ class fileManager {
         while (token != nullptr) {
             strcat_s(checkName, RL_MAX_PATH, token);
             const char* realName = getName(checkName);
+            if (realName == nullptr) return false;
             strcat_s(name, RL_MAX_PATH, realName);
             delete[]realName;
-            if (!isDir(name)) return false;
             strcat_s(name, RL_MAX_PATH, "\\");
-            strcat_s(checkName, RL_MAX_PATH, name);
+            strcpy_s(checkName, RL_MAX_PATH, name);
             token = strtok_s(nullptr, "\\", &next_token);
         }
     }
@@ -113,7 +112,7 @@ class fileManager {
             return nullptr;
         }
         _finddata_t find;
-        long long result = _findfirst(path, &find);
+        long long result = _findfirst(fullpath, &find);
         char* rename = new char[strlen(find.name) + 1];
         strcpy_s(rename, strlen(find.name) + 1, find.name);
         delete[] fullpath;
@@ -147,6 +146,10 @@ public:
             //Команда cd была дана с параметрами
             else if (!_strnicmp(action, "cd", 2)) {
                 //Находим индекс параметра
+                size_t SaSremover = strlen(action) - 1;
+                while (action[SaSremover] == '\\' || action[SaSremover] == ' ')
+                    SaSremover--;
+                action[SaSremover + 1] = '\0'; //убираем слеши справа для проверки cd на пустой путь
                 size_t index = strspn(action + 2, " ") + 2;
                 if ((!_stricmp(action, "cd")))
                     continue;
@@ -369,7 +372,7 @@ public:
 int main() {
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
-    fileManager c(0);
+    fileManager c(1);
 
     //c.createFile("C:\\");
     //c.setPath(R"(C:\Users\Saturn\source\repos\Файловый Манагер\Файловый Манагер\Владислв)");
