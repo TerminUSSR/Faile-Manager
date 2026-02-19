@@ -32,6 +32,7 @@ class fileManager {
         case EACCES:
             strcpy_s(message, 1024, "Нет прав\n");
             break;
+        case EPERM:
         case ENOTDIR:
             strcpy_s(message, 1024, "Путь не является директорией");
             break;
@@ -56,7 +57,7 @@ class fileManager {
         DWORD attributes = GetFileAttributesA(fullpath);
         return (attributes == INVALID_FILE_ATTRIBUTES) ? false : (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
     }
-    bool isPathExist(char* name) {//name только папки
+    bool isPathExist(char* name) {//ispathexist не троготь
         if (!isDisk(name)) {
             zErrno(ENODISK);
             return false;
@@ -74,7 +75,10 @@ class fileManager {
         while (token != nullptr) {
             strcat_s(checkName, RL_MAX_PATH, token);
             const char* realName = getName(checkName);
-            if (realName == nullptr) return false;
+            if (realName == nullptr) {
+                zErrno(ENOPATH);
+                return false;
+            }
             strcat_s(name, RL_MAX_PATH, realName);
             delete[]realName;
             strcat_s(name, RL_MAX_PATH, "\\");
@@ -113,9 +117,10 @@ class fileManager {
         }
         _finddata_t find;
         long long result = _findfirst(fullpath, &find);
+        delete[] fullpath;
+        if (result == -1) return nullptr;
         char* rename = new char[strlen(find.name) + 1];
         strcpy_s(rename, strlen(find.name) + 1, find.name);
-        delete[] fullpath;
         return rename;
     }
 public:
@@ -300,6 +305,7 @@ public:
         long long h = _findfirst(search, &find);
         if (h == -1) {
             if (errno == ENOENT) zErrno(ENOPATH);
+            else if (errno == EINVAL) zErrno(ENOTDIR);
             else zErrno(errno);
             delete[] fullpath;
             return false;
@@ -325,12 +331,12 @@ public:
         delete[]fullpath;
         return true;
     }
-    bool deleteFile(const char* name) {
+    bool deleteFile(const char* name) { //ДЕЛИТФАЙЛ ТРОГАТЬ ОСТАЛЬНОЕ НЕ ТРОГАТЬ
         const char* fullpath = formatInputPath(name);
         if (fullpath == nullptr) {
-            delete[] fullpath;
             return false;
         }
+        //отрезать последнее имя, проверить что все каталоги в пути-папки, проверить через логику шоудира существование файла. перед иф ремув.
         if (remove(fullpath) == -1) {//надо потестить, нужно ли вызывать isPathExist() или нет?
             zErrno(errno); //ну тут то чё может быть непонятного
             //ТУТ МОЖЕТ БЫТЬ, НАПРИМЕР, ЧТО ПРАВ НЕТ У ПОЛЬЗОВАТЕЛЯ ДЛЯ УДАЛЕНИЯ
