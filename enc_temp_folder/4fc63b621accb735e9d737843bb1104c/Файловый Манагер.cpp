@@ -380,7 +380,7 @@ public:
             strcat_s(cutpath, RL_MAX_PATH, "\\");
         } while (_findnext(result, &find) != -1);
         if (remove(fullpath) == -1) {//надо потестить, нужно ли вызывать isPathExist() или нет?
-            zErrno(ENOPATH);
+            zErrno(errno);
             delete[]fullpath;
             return false;
         }
