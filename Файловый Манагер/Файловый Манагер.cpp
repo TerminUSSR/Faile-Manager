@@ -1,4 +1,6 @@
-﻿#include <iostream>
+﻿//ДОП: функция с переменным количеством аргументов для очистки памяти всех переданных ей указателей
+//ДОП: rmdir при непереданном пути удаляет fileManager::path
+#include <iostream>
 #include <windows.h>
 #include <io.h>
 #include <iomanip>
@@ -10,8 +12,14 @@ void myHandler(const wchar_t* expression, const wchar_t* function,
     const wchar_t* file, unsigned int line, uintptr_t pReserved) {
     // Здесь можно не делать ничё
 }
-class fileManager {
+void SaSremover(char* name) {
+    size_t SaSremover = strlen(name) - 1;
+    while (name[SaSremover] == '\\' || name[SaSremover] == ' ')
+        SaSremover--;
+    name[SaSremover + 1] = '\0';
+}
 #define RL_MAX_PATH MAX_PATH+1
+class fileManager {
     static bool heaven(char* path) { // отсекает последнюю папку с пути👍
         const char* result = strrchr(path, '\\');
         if (result == nullptr)
@@ -24,9 +32,14 @@ class fileManager {
 #define ENOCOM -1
 #define ENODISK -2
 #define ENOPATH -3
+#define FEXIST -4
+#define SUCCESS -5
         switch (EC) {
         case EEXIST:
             strcpy_s(message, 1024, "Папка уже существует\n");
+            break;
+        case FEXIST:
+            strcpy_s(message, 1024, "Файл уже существует\n");
             break;
         case EINVAL:
             strcpy_s(message, 1024, "Запрещённое имя (содержит \\/:*?\"<>| )\n");
@@ -50,8 +63,14 @@ class fileManager {
         case ENODISK:
             strcpy_s(message, 1024, "Несуществующий диск\n");
             break;
-        case ENOPATH:
+        case ENOENT:
             strcpy_s(message, 1024, "Не найден путь\n");
+            break;
+        case ENOPATH:
+            strcpy_s(message, 1024, "Путь не указан\n");
+            break;
+        case SUCCESS:
+            strcpy_s(message, 1024, "Команда успешно выполнена.\n");
             break;
         } //https://learn.microsoft.com/ru-ru/cpp/c-runtime-library/errno-constants?view=msvc-170
     }
@@ -83,10 +102,7 @@ class fileManager {
             strcat_s(checkName, RL_MAX_PATH, "\\");
             strcat_s(checkName, RL_MAX_PATH, token);
             const char* realName = getName(checkName);
-            if (realName == nullptr) {
-                zErrno(ENOPATH);
-                return false;
-            }
+            if (realName == nullptr) return false;
             strcat_s(name, RL_MAX_PATH, "\\");
             strcat_s(name, RL_MAX_PATH, realName);
             delete[]realName;
@@ -121,17 +137,22 @@ class fileManager {
     }
     const char* getName(const char* path) {
         char* fullpath = formatInputPath(path);
-        if (!isDir(fullpath)) {
-            delete[] fullpath;
-            return nullptr;
-        }
+        if (fullpath == nullptr) return nullptr;
         _finddata_t find;
         long long result = _findfirst(fullpath, &find);
         delete[] fullpath;
-        if (result == -1) return nullptr;
+        if (result == -1) {
+            zErrno(ENOENT);
+            return nullptr;
+        }
         char* rename = new char[strlen(find.name) + 1];
         strcpy_s(rename, strlen(find.name) + 1, find.name);
         return rename;
+    }
+    void strcopycat_s(char* dest, size_t buffer, const char* path, const char* concat) {
+        strcpy_s(dest, buffer, path);
+        strcat_s(dest, buffer, "\\");
+        strcat_s(dest, buffer, concat);
     }
 public:
     fileManager(bool intrface = false) {
@@ -151,6 +172,7 @@ public:
             message[0] = '\0';
             //Ввод команды пользователя
             std::cin.getline(action, size);
+            SaSremover(action);
             //Переход в корневой каталог
             if (!_stricmp(action, "root")) {
                 path[2] = '\0';
@@ -163,10 +185,6 @@ public:
             //Команда cd была дана с параметрами
             else if (!_strnicmp(action, "cd", 2)) {
                 //Находим индекс параметра
-                size_t SaSremover = strlen(action) - 1;
-                while (action[SaSremover] == '\\' || action[SaSremover] == ' ')
-                    SaSremover--;
-                action[SaSremover + 1] = '\0'; //убираем слеши справа для проверки cd на пустой путь
                 size_t index = strspn(action + 2, " ") + 2;
                 if ((!_stricmp(action, "cd")))
                     continue;
@@ -188,18 +206,31 @@ public:
                 size_t index = strspn(action + 6, " ") + 6;
                 deleteFile(action + index);
             }
-            else if (!_strnicmp(action, "rename", 6)) {
-                size_t index = strspn(action + 6, " ") + 6;
+            else if (!_strnicmp(action, "a", 1)) {
+                size_t index = strspn(action + 1, " ") + 1;
+                isPathExist(formatInputPath(action + index));
+            } //УБИЙЦА СЛОМАЛ ФУНКЦИЮ И ОСТАЛСЯ НА СВОБОДЕ
+            else if (!_strnicmp(action, "rename", 6) || !_strnicmp(action, "move", 4) || !_strnicmp(action, "copyfile", 8)) {
+                int off = strcspn(action, " ");
+                size_t index = strspn(action + off, " ") + off;
                 const char* name = action + index;
-                int len = strcspn(name, " ");
-                if (name[len] != ' ') {
+                int len = strcspn(name, ",");
+                if (name[len] != ',') {
                     zErrno(ENOPATH);
                 } // len - место пробела, используется для разъединения name на oldname и newname
                 char oldname[RL_MAX_PATH] = {};
                 strncpy_s(oldname, RL_MAX_PATH, name, len);
                 char newname[RL_MAX_PATH] = {};
+                if (oldname[0] == '\0') {
+                    zErrno(ENOPATH);
+                    continue;
+                }
                 strncpy_s(newname, RL_MAX_PATH, name + len + 1, RL_MAX_PATH);
-                reName(oldname, newname);
+                strcpy_s(newname, RL_MAX_PATH, newname + strspn(newname, " "));
+                if (off == 4) move(oldname, newname);
+                else if (off == 6) reName(oldname, newname);
+                else copyFile(oldname, newname);
+                //off == 4 ? move(oldname, newname) : reName(oldname, newname);
             }
             else {
                 zErrno(ENOCOM);
@@ -245,8 +276,7 @@ public:
     void showDir(const char* path, std::ostream& out = std::cout) {
         _finddata_t find;
         char pathfind[RL_MAX_PATH];
-        strcpy_s(pathfind, RL_MAX_PATH, path);
-        strcat_s(pathfind, RL_MAX_PATH, "\\*.*");
+        strcopycat_s(pathfind, RL_MAX_PATH, path, "*.*");
         char info[RL_MAX_PATH];
         long long result = _findfirst(pathfind, &find);
         system("cls");
@@ -269,7 +299,6 @@ public:
         if (fullpath == nullptr)
             return false;
         if (_mkdir(fullpath)) {
-            zErrno(errno);
             if (errno == ENOENT) {
                 char copy[RL_MAX_PATH];
                 strcpy_s(copy, RL_MAX_PATH, fullpath);
@@ -278,11 +307,13 @@ public:
                 createDir(fullpath);
             }
             else {
+                zErrno(errno);
                 delete[] fullpath;
                 return false;
             }
         }
         delete[] fullpath;
+        zErrno(SUCCESS);
         return true;
     }
     bool createFile(const char* name) {
@@ -296,6 +327,13 @@ public:
         if (!isPathExist(CurDir))
             createDir(CurDir);
         FILE* f;
+        fopen_s(&f, fullpath, "r"); // проверяем чтоб не перезаписать существующий файл
+        if (f) { 
+            zErrno(FEXIST);
+            delete[] fullpath;
+            fclose(f);
+            return false;
+        }
         fopen_s(&f, fullpath, "w");
         if (!f) {
             zErrno(errno);
@@ -304,6 +342,7 @@ public:
         }
         fclose(f); // закрываем файл
         delete[] fullpath;
+        zErrno(SUCCESS);
         return true;
     }
     bool deleteDir(const char* d) {
@@ -314,8 +353,7 @@ public:
         }
         _finddata_t find;
         char search[RL_MAX_PATH];
-        strcpy_s(search, RL_MAX_PATH, fullpath);
-        strcat_s(search, RL_MAX_PATH, "\\*.*"); // получаем первый элемент файловой системы находящийся в fullpath
+        strcopycat_s(search, RL_MAX_PATH, fullpath, "*.*");// получаем первый элемент файловой системы находящийся в fullpath
         long long h = _findfirst(search, &find);
         if (h == -1) {
             if (errno == ENOENT) zErrno(ENOPATH);
@@ -327,9 +365,7 @@ public:
         do {
             if (strcmp(find.name, ".") && strcmp(find.name, "..")) { //пропускаем директории . и ..
                 char othsearch[RL_MAX_PATH];
-                strcpy_s(othsearch, RL_MAX_PATH, fullpath);
-                strcat_s(othsearch, RL_MAX_PATH, "\\");
-                strcat_s(othsearch, RL_MAX_PATH, find.name); // получаем обозреваемый путь
+                strcopycat_s(othsearch, RL_MAX_PATH, fullpath, find.name); // получаем обозреваемый путь
                 if (isDir(othsearch)) {
                     deleteDir(othsearch); // рекурсивно удаляем
                 }
@@ -343,6 +379,7 @@ public:
             return false;
         }
         delete[]fullpath;
+        zErrno(SUCCESS);
         return true;
     }
     bool deleteFile(const char* name) { //ДЕЛИТФАЙЛ ТАЙНА НЕСУЩЕСТВУЮЩЕГО ПУТИ 
@@ -350,18 +387,17 @@ public:
         if (fullpath == nullptr) {
             return false;
         }
-        //отрезать последнее имя, проверить что все каталоги в пути-папки, проверить через логику шоудира существование файла. перед иф ремув.
+        //отрезать последнее имя, проверить что все каталоги в пути-папки, проверить через логику шоудира существование файла.
         char cutpath[RL_MAX_PATH];
         strcpy_s(cutpath, RL_MAX_PATH, fullpath);
         heaven(cutpath);
         if (!isPathExist(cutpath)) {
             delete[] fullpath;
             return false;
-        } 
+        }
         _finddata_t find;
         char pathfind[RL_MAX_PATH];
-        strcpy_s(pathfind, RL_MAX_PATH, cutpath);
-        strcat_s(pathfind, RL_MAX_PATH, "\\*.*");
+        strcopycat_s(pathfind, RL_MAX_PATH, cutpath, "*.*");
         bool isfile;
         long long result = _findfirst(pathfind, &find);
         do {
@@ -385,20 +421,16 @@ public:
             return false;
         }
         delete[]fullpath;
+        zErrno(SUCCESS);
         return true;
     }
+
+
     bool reName(const char* oldname, const char* newname) {
         const char* fullpathOld = formatInputPath(oldname);
-        if (fullpathOld == nullptr) {
-            delete[] fullpathOld;
-            return false;
-        }
+        if (fullpathOld == nullptr) return false;
         const char* fullpathNew = formatInputPath(newname);
-        if (fullpathNew == nullptr) {
-            delete[] fullpathNew;
-            return false;
-        }
-
+        if (fullpathNew == nullptr) return false;
         int result = rename(fullpathOld, fullpathNew);//аналогично потестить!! нужно ли проверять, что путь существует???
         delete[]fullpathNew;
         delete[]fullpathOld;
@@ -406,16 +438,136 @@ public:
             zErrno(errno);
             return false;
         }
+        zErrno(SUCCESS);
         return true;
     }
-    const char* gettname(const char* path) {//для теста в main() инкапсулированного метода
-        return getName(path);
+
+    bool copyFile(const char* oldFile, const char* newFolder) { // 1: несуществующий файл (1 арг)
+        //ДЗ! отдебажиьт функцию 1 дальше видно будет что дебажить
+        const char* file = formatInputPath(oldFile);
+        if (file == nullptr) return false;
+        const char* dest = formatInputPath(newFolder);
+        if (dest == nullptr) { delete[] file; return false; }
+        const char* name = getName(file);
+        if (name == nullptr) {
+            delete[] file;
+            delete[] dest;
+        }
+        char filecpy[RL_MAX_PATH];
+        strcopycat_s(filecpy, RL_MAX_PATH, dest, name);
+        if (!createFile(filecpy)) {
+            delete[] file;
+            delete[] dest;
+            delete[] name;
+            return false;
+        }
+        FILE* w;
+        FILE* r;
+        fopen_s(&w, filecpy, "wb");
+        fopen_s(&r, file, "rb");
+        if (!r) {
+            zErrno(errno);
+            delete[] file;
+            delete[] dest;
+            delete[] name;
+            fclose(w);
+            return false;
+        }
+        char buffer[4096];
+        size_t bytesRead;
+        while ((bytesRead = fread(buffer, 1, sizeof(buffer), r)) > 0) {
+            fwrite(buffer, 1, bytesRead, w);
+        }
+        fclose(w);
+        fclose(r);
+        zErrno(SUCCESS);
+        delete[] file;
+        delete[] dest;
+        delete[] name;
+        return true;
+    }
+    bool copyDir(const char* oldFolder, const char* newFolder) {
+        const char* fullpathOld = formatInputPath(oldFolder);
+        if (fullpathOld == nullptr || !isDir(fullpathOld)) return false;
+        const char* fullpathNew = formatInputPath(newFolder);
+        if (fullpathNew == nullptr || !isDir(fullpathNew)) return false;
+        char folderName[RL_MAX_PATH];
+        const char* lastName = getName(fullpathOld);
+        if (lastName == nullptr) {
+            delete[]fullpathOld;
+            delete[]fullpathNew;
+            return false;
+        }
+        strcopycat_s(folderName, RL_MAX_PATH, fullpathNew, lastName);
+        delete[]lastName;
+        if (!createDir(folderName)) {
+            delete[]fullpathOld;
+            delete[]fullpathNew;
+            return false;
+        }
+
+        _finddata_t find;
+        char search[RL_MAX_PATH];
+        strcopycat_s(search, RL_MAX_PATH, fullpathOld, "*.*");// получаем первый элемент файловой системы находящийся в fullpath
+        long long h = _findfirst(search, &find);
+        if (h == -1) {
+            if (errno == ENOENT) zErrno(ENOPATH);
+            else if (errno == EINVAL) zErrno(ENOTDIR);
+            else zErrno(errno);
+            delete[] fullpathOld;
+            delete[] fullpathNew;
+            return false;
+        }
+        do {
+            if (strcmp(find.name, ".") && strcmp(find.name, "..")) { //пропускаем директории . и ..
+                char othsearch[RL_MAX_PATH];
+                strcopycat_s(othsearch, RL_MAX_PATH, fullpathOld, find.name);// получаем обозреваемый путь
+                if (isDir(othsearch)) {
+                    copyDir(othsearch, folderName); // рекурсивно копируем
+                }
+                else copyFile(othsearch, folderName); // если не директория - копируем не рекурсивно
+            }
+        } while (_findnext(h, &find) == 0);
+        _findclose(h);
+        delete[] fullpathOld;
+        delete[] fullpathNew;
+        zErrno(SUCCESS);
+        return true;
+    };
+    bool move(const char* oldname, const char* moveto) {
+        char newpath[RL_MAX_PATH];
+        strcopycat_s(newpath, RL_MAX_PATH, moveto, "\0");
+        const char* source = formatInputPath(oldname);
+        if (source == nullptr) return false;
+        const char* lastName = getName(source);
+        if (lastName == nullptr) {
+            delete[]source;
+            return false;
+        }
+        strcat_s(newpath, RL_MAX_PATH, lastName);
+        delete[]lastName;
+        if (newpath[0] == '\0') {
+            delete[]source;
+            return false;
+        }
+        if (isDir(source)) {
+            if (!copyDir(source, formatInputPath(moveto))) {
+                zErrno(errno);
+                return false;
+            }
+            deleteDir(source);
+            delete[]source;
+            return true;
+        }
+        delete[]source;
+        return reName(oldname, newpath);
     }
 #undef ENOCOM
 #undef ENODISK
 #undef ENOPATH
+#undef FEXIST
+#undef SUCCESS
 };
-
 int main() {
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
