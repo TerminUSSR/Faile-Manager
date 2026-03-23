@@ -1,5 +1,6 @@
 ﻿//ДОП: функция с переменным количеством аргументов для очистки памяти всех переданных ей указателей
 //ДОП: rmdir при непереданном пути удаляет fileManager::path
+//ДОП: Функция перебирающая rmdir 
 #include <iostream>
 #include <windows.h>
 #include <io.h>
@@ -208,7 +209,7 @@ public:
             }
             else if (!_strnicmp(action, "a", 1)) {
                 size_t index = strspn(action + 1, " ") + 1;
-                isPathExist(formatInputPath(action + index));
+                std::cout << getSize(action + index);
             } //УБИЙЦА СЛОМАЛ ФУНКЦИЮ И ОСТАЛСЯ НА СВОБОДЕ
             else if (!_strnicmp(action, "rename", 6) || !_strnicmp(action, "move", 4) || !_strnicmp(action, "copyfile", 8)) {
                 int off = strcspn(action, " ");
@@ -328,7 +329,7 @@ public:
             createDir(CurDir);
         FILE* f;
         fopen_s(&f, fullpath, "r"); // проверяем чтоб не перезаписать существующий файл
-        if (f) { 
+        if (f) {
             zErrno(FEXIST);
             delete[] fullpath;
             fclose(f);
@@ -561,6 +562,38 @@ public:
         }
         delete[]source;
         return reName(oldname, newpath);
+    }
+    unsigned long long getSize(const char* inputPath) {
+        char* fullpath = formatInputPath(inputPath);
+        bool isFolder = isDir(fullpath);
+        if (fullpath == nullptr) return 0;
+        _finddata_t find;
+        if(isFolder) strcat_s(fullpath, RL_MAX_PATH, "\\*.*");
+        long long h = _findfirst(fullpath, &find);
+        unsigned long long size = 0;
+        if (h == -1) {
+            zErrno(errno);
+            delete[] fullpath;
+            return 0;
+        }
+        if (!isFolder) size = find.size;
+        else {
+            do { 
+                if (strcmp(find.name, ".") && strcmp(find.name, "..")) {
+                    //Проверяем Директория или Нет
+                    if (find.attrib & _A_SUBDIR){ 
+                        heaven(fullpath);
+                        strcat_s(fullpath, RL_MAX_PATH, "\\");
+                        strcat_s(fullpath, RL_MAX_PATH, find.name);
+                        size += getSize(fullpath);
+                    }
+                    else size += find.size;
+                } // find; fullpath
+            } while (_findnext(h, &find) != -1);
+        }
+        delete[] fullpath;
+        _findclose(h);
+        return size;
     }
 #undef ENOCOM
 #undef ENODISK
