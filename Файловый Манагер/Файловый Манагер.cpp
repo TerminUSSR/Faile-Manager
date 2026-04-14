@@ -1,7 +1,4 @@
-﻿//ДОП: функция с переменным количеством аргументов для очистки памяти всех переданных ей указателей
-//ДОП: rmdir при непереданном пути удаляет fileManager::path
-//ДОП: Функция перебирающая rmdir 
-#include <iostream>
+﻿#include <iostream>
 #include <windows.h>
 #include <io.h>
 #include <iomanip>
@@ -35,6 +32,7 @@ class fileManager {
 #define ENOPATH -3
 #define FEXIST -4
 #define SUCCESS -5
+#define ERRIDK 0xFFFFFFFFFFFFFFFF
         switch (EC) {
         case EEXIST:
             strcpy_s(message, 1024, "Папка уже существует\n");
@@ -207,10 +205,18 @@ public:
                 size_t index = strspn(action + 6, " ") + 6;
                 deleteFile(action + index);
             }
-            else if (!_strnicmp(action, "a", 1)) {
-                size_t index = strspn(action + 1, " ") + 1;
-                std::cout << getSize(action + index);
-            } //УБИЙЦА СЛОМАЛ ФУНКЦИЮ И ОСТАЛСЯ НА СВОБОДЕ
+            else if (!_strnicmp(action, "getsize", 7)) {
+                size_t index = strspn(action + 7, " ") + 7;
+                unsigned long long count = getSize(action + index);
+                if (count != ERRIDK) {
+                    _i64toa_s(count, message, RL_MAX_PATH, 10);
+                    strcat_s(message, RL_MAX_PATH, " байт");
+                }
+            }
+            else if (!_strnicmp(action, "search", 6)) {
+                size_t index = strspn(action + 6, " ") + 6;
+                Search(path, action + index);
+            }
             else if (!_strnicmp(action, "rename", 6) || !_strnicmp(action, "move", 4) || !_strnicmp(action, "copyfile", 8)) {
                 int off = strcspn(action, " ");
                 size_t index = strspn(action + off, " ") + off;
@@ -565,23 +571,23 @@ public:
     }
     unsigned long long getSize(const char* inputPath) {
         char* fullpath = formatInputPath(inputPath);
+        if (fullpath == nullptr) return ERRIDK;
         bool isFolder = isDir(fullpath);
-        if (fullpath == nullptr) return 0;
         _finddata_t find;
-        if(isFolder) strcat_s(fullpath, RL_MAX_PATH, "\\*.*");
+        if (isFolder) strcat_s(fullpath, RL_MAX_PATH, "\\*.*");
         long long h = _findfirst(fullpath, &find);
         unsigned long long size = 0;
         if (h == -1) {
             zErrno(errno);
             delete[] fullpath;
-            return 0;
+            return ERRIDK;
         }
         if (!isFolder) size = find.size;
         else {
-            do { 
+            do {
                 if (strcmp(find.name, ".") && strcmp(find.name, "..")) {
                     //Проверяем Директория или Нет
-                    if (find.attrib & _A_SUBDIR){ 
+                    if (find.attrib & _A_SUBDIR) {
                         heaven(fullpath);
                         strcat_s(fullpath, RL_MAX_PATH, "\\");
                         strcat_s(fullpath, RL_MAX_PATH, find.name);
@@ -595,20 +601,73 @@ public:
         _findclose(h);
         return size;
     }
+    static bool isMaskMatch(const char* pmask, const char* pname) {
+        const char* pStar = nullptr;
+        const char* pNameReset = nullptr;
+
+        while (*pname) {
+            if (*pmask == '*') {
+                pStar = pmask++;    // Запоминаем где была звезда
+                pNameReset = pname; // Запоминаем где мы начали её применять
+            }
+            else if (*pmask == '?' || *pmask == *pname) {
+                pmask++;
+                pname++;
+            }
+            else if (pStar) {
+                // Если не совпало, но была звезда — откатываемся
+                pmask = pStar + 1;
+                pname = ++pNameReset;
+            }
+            else {
+                return false;
+            }
+        }
+        // Пропускаем оставшиеся звезды в конце маски
+        while (*pmask == '*') pmask++;
+
+        return *pmask == '\0';
+    }
+
+    void Search(const char* path, const char* mask) {
+        _finddata_t find;
+        long long h = _findfirst(path, &find);
+        if (h == -1) {
+            zErrno(errno);
+            return;
+        }
+        else {
+            do {
+
+                if (strcmp(find.name, ".") && strcmp(find.name, "..")) {
+                    bool isFolder = find.attrib & _A_SUBDIR;
+                    if (isMaskMatch(mask, find.name)) {
+                        isFolder ? strcat_s(message, RL_MAX_PATH, "Каталог ") :
+                            strcat_s(message, RL_MAX_PATH, "Файл    ");
+                        strcat_s(message, 1024, path);
+                        strcat_s(message, 1024, "\\");
+                        strcat_s(message, 1024, find.name);
+                        strcat_s(message, 1024, "\n");
+                    }
+                    if (isFolder) {
+                        char newPath[RL_MAX_PATH];
+                        strcopycat_s(newPath, RL_MAX_PATH, path, find.name);
+                        Search(newPath, mask);
+                    }
+                }
+            } while (_findnext(h, &find) != -1);
+        }
+        _findclose(h);
+    }
 #undef ENOCOM
 #undef ENODISK
 #undef ENOPATH
 #undef FEXIST
 #undef SUCCESS
+#undef ERRIDK
 };
 int main() {
     SetConsoleCP(1251);
     SetConsoleOutputCP(1251);
     fileManager c(1);
-
-    //c.createFile("C:\\");
-    //c.setPath(R"(C:\Users\Saturn\source\repos\Файловый Манагер\Файловый Манагер\Владислв)");
-
-    //if (_stricmp(c.getPath(), R"(C:\Users\Saturn\source\repos\Файловый Манагер\Файловый Манагер\Владислв)"))
-    //    std::cout << "Ошибка"; // C:\Users\Saturn\source\repos\Файловый Манагер\Файловый Манагер\Владислв
 }
